@@ -1,0 +1,14 @@
+{
+  "name": "qip-parser",
+  "version": "1.0.0",
+  "description": "",
+  "main": "qip-parser.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "array-uniq": "^2.0.0"
+  }
+}
