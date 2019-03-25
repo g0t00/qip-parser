@@ -1,5 +1,5 @@
 {
-  "name": "scripts",
+  "name": "qip-parser",
   "version": "1.0.0",
   "description": "",
   "main": "qip-parser.js",
