@@ -3,10 +3,10 @@
 'use strict';
 const child_process = require('child_process');
 const fs = require('fs');
-const arrayUniq = require('array-uniq');
+const {argv} = require('process');
+
 class QipParser {
-  constructor(path, relativePath, dependency = false) {
-    this.dependency = dependency;
+  constructor(path, relativePath) {
     this.path = path;
     this.relativePath = relativePath;
     this.getFileContents();
@@ -18,13 +18,9 @@ class QipParser {
   }
   parse() {
     let files = [];
-    let filesDependency = [];
+    this.QipText = this.QipText.replace(/\r/g, '');
     this.QipText.split('\n').forEach(line => {
       // console.log('line', line);
-      let dependency = false;
-      if (line.match(/#dep/i)) {
-        dependency = true;
-      }
       line = line.replace(/#.*/, '');
       if (line.match('set_global_assignment') !== null) {
         let match = line.match(/-library ([^ ]+)/);
@@ -39,13 +35,8 @@ class QipParser {
             let path = pathMatch[1];
             // let mixedFlag = path.match(/pkg/i) !== null ? '-mixedsvvh' : '';
             let mixedFlag = '-mixedsvvh';
-            if (this.dependency || dependency) {
-              const file = {path: this.relativePath + path, work};
-              filesDependency.push(file);
-            } else {
-              const file = {path: this.relativePath + path, work};
-              files.push(file);
-            }
+            const file = {path: this.relativePath + path, work};
+            files.push(file);
             // console.log(command);
           } else {
             console.error('A unable to parse: ', line);
@@ -54,10 +45,9 @@ class QipParser {
           if (pathMatch !== null) {
             let path = pathMatch[1];
             let pathArg = path.replace(/[^/]*$/, '');
-            const subParser = new QipParser(this.relativePath + path, this.relativePath + pathArg, this.dependency || dependency);
-            const [filesNew, filesDependencyNew] = subParser.parse();
+            const subParser = new QipParser(this.relativePath + path, this.relativePath + pathArg);
+            const filesNew = subParser.parse();
             files = files.concat(filesNew);
-            filesDependency = filesDependency.concat(filesDependencyNew);
           } else {
             console.error('B unable to parse: ', line);
           }
@@ -68,34 +58,93 @@ class QipParser {
 
       // console.log(line);
     });
-    return [files, filesDependency];
+    return files;
   }
 }
 let targetFile = process.argv[2];
 let relativePath = targetFile.replace(/[^/]+$/, '');
+const touchFile = relativePath + 'sources.touch';
 const parser = new QipParser(targetFile, relativePath);
-let [files, filesDependency] = parser.parse();
-// console.log(doFile);
+let files = parser.parse();
 files.forEach(file => {
   file.path = file.path.replace(/[^/ .]+\/\.\.\//g, '')
 });
-filesDependency.forEach(file => {
-  file.path = file.path.replace(/[^/ .]+\/\.\.\//g, '')
-});
-files = files.filter(file => {
-  return typeof filesDependency.find(fileSearch => file.path === fileSearch.path) === 'undefined';
+let lastCompile;
+try {
+  lastCompile = fs.statSync(touchFile).mtimeMs;
+
+} catch (e) {
+  lastCompile = 0;
+}
+let doFile = [];
+// order files
+const compare = (a, b) => {
+  // console.log(compare, a, b,  a.path, b.path);
+  if (a.text.match(/^\s*package\s+\w+\s+is/im) !== null) {
+    return false;
+  } else if (b.text.match(/^\s*package\s+\w+\s+is/im) !== null) {
+    return true;
+  }
+  if (!b.entity) {
+    return false;
+  }
+  if (!a.entity) {
+    return false;
+  }
+  if (a.text.match(new RegExp(`entity\\s+(${b.work}|work)\\.${b.entity}`, 'im'))) {
+    return true;
+  }
+  if (b.text.match(new RegExp(`entity\\s+(${a.work}|work)\\.${a.entity}`, 'im'))) {
+    return false;
+  }
+
+
+  return false;
+}
+let changed = true;
+files = files.filter((file, index) => {
+  return files.slice(index + 1)
+  .findIndex(fileSearch => fileSearch.path === file.path && fileSearch.work === fileSearch.work) === -1;
 })
-// console.log(doFile);
-filesDependency = arrayUniq(filesDependency);
-files = arrayUniq(files);
-let doFile = 'if {$argc == 0} {\n';
-for (const file of filesDependency) {
-  doFile += `vcom -2008 -mixedsvvh -work ${file.work} ${file.path}\n`;
-}
-doFile += '}\n';
 for (const file of files) {
-  doFile += `vcom -2008 -mixedsvvh -work ${file.work} ${file.path}\n`;
+  file.text = fs.readFileSync(file.path, {encoding: 'utf8'});
+  const match = file.text.match(/^\s*entity\s+(\w+)\s*is/im);
+  if (match !== null) {
+    file.entity = match[1];
+  } else {
+    // console.error('no entity', file.path);
+  }
 }
+let changeCounter = 0;
+while (changed) {
+  changed = false;
+  loop: for (let a = 0; a < files.length - 1; a++) {
+    for (let b = a + 1; b < files.length; b++) {
+      if (compare(files[a], files[b])) {
+        // console.log(`swapping ${a} ${b} ${files[a].entity} with ${files[b].entity}`);
+        // console.log(files.map(file => file.entity));
+        const bObj = files.splice(b, 1)[0];
+        files.splice(a, 0, bObj);
+        // console.log(files.map(file => file.entity));
+        // asd;
+        changed = true;
+        changeCounter++;
+        break loop;
+      }
+    }
+  }
+}
+console.log('changeCounter', changeCounter)
+for (const file of files) {
+  const thisChangeTime = fs.statSync(file.path).mtimeMs;
+  if (thisChangeTime > lastCompile || argv[3] == '--build-all') {
+    doFile.push(`vcom -2008 -mixedsvvh -work ${file.work} ${file.path}`);
+  }
+}
+doFile.push(`set fp [open "${touchFile}" w+]`);
+doFile.push(`close $fp`);
+doFile.push(`file mtime ${touchFile} [clock seconds]`);
+doFile = doFile.join('\n');
 // doFile = optimizeDoFile(doFile);
 doFile = '#### auto generated with qip-parser. DONT EDIT ####\n'  + doFile;
 fs.writeFileSync(relativePath + 'sources.do', doFile);
