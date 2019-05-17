@@ -37,7 +37,7 @@ class QipParser {
         if (match !== null) {
           work = match[1];
         }
-        let pathMatch = line.match(/\[file join \$::quartus\(qip_path\) "([^"]+)"\]/);
+        let pathMatch = line.match(/\[file join \$::quartus\(qip_path\)\s+"([^"]+)"\]/);
         if (line.match('-name VHDL_FILE') !== null) {
 
           if (pathMatch !== null) {
