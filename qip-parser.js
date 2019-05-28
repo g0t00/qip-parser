@@ -37,6 +37,9 @@ class QipParser {
         if (match !== null) {
           work = match[1];
         }
+        if (work === 'work' && typeof this.parent.work !== 'undefined') {
+          work = this.parent.work;
+        }
         let pathMatch = line.match(/\[file join \$::quartus\(qip_path\)\s+"([^"]+)"\]/);
         if (line.match('-name VHDL_FILE') !== null) {
 
@@ -45,6 +48,7 @@ class QipParser {
             // let mixedFlag = path.match(/pkg/i) !== null ? '-mixedsvvh' : '';
             let mixedFlag = '-mixedsvvh';
             const file = {path: this.relativePath + path, work, parent: this};
+            // console.log(file);
             files.push(file);
             // console.log(command);
           } else {
@@ -54,6 +58,7 @@ class QipParser {
           if (pathMatch !== null) {
             let path = pathMatch[1];
             let pathArg = path.replace(/[^/]*$/, '');
+            this.work = work;
             const subParser = new QipParser(this.relativePath + path, this.relativePath + pathArg, this);
             const filesNew = subParser.parse();
             files = files.concat(filesNew);
